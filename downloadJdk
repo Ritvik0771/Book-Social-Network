@@ -1,0 +1,21 @@
+HttpClient client = HttpClient.newHttpClient();
+    HttpRequest request = HttpRequest.newBuilder()
+        .uri(URI.create("https://corretto.aws/downloads/latest/amazon-corretto-17-x64-linux-jdk.tar.gz"))
+        .build();
+
+    HttpResponse<InputStream> response = client.send(
+        request,
+        HttpResponse.BodyHandlers.ofInputStream()
+    );
+
+    if (response.statusCode() != 200) {
+        throw new RuntimeException("HTTP error: " + response.statusCode());
+    }
+
+    // Save the downloaded content to jdk.tar.gz
+    try (InputStream is = response.body();
+         FileOutputStream fos = new FileOutputStream("jdk.tar.gz")) {
+        is.transferTo(fos);
+    }
+
+    System.out.println("JDK downloaded successfully.");
