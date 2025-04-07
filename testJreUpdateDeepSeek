@@ -1,0 +1,140 @@
+package com.ncratleos.baseimage.jre;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ncratleos.baseimage.exception.JreServiceException;
+import com.ncratleos.baseimage.service.GithubService;
+import com.ncratleos.baseimage.service.JreService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Map;
+
+import static com.ncratleos.baseimage.constant.FilenameConstants.NEW_JRE_JSON_FILENAME;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+class JreUpdateCheckerTest {
+
+    @Mock
+    private GithubService githubService;
+    
+    @Mock
+    private JreService jreService;
+    
+    private JreUpdateChecker jreUpdateChecker;
+    private ObjectMapper objectMapper = new ObjectMapper();
+
+    @TempDir
+    Path tempDir;
+
+    @BeforeEach
+    void setUp() {
+        jreUpdateChecker = new JreUpdateChecker(githubService, jreService, objectMapper);
+    }
+
+    @Test
+    void checkJreUpdate_WhenVersionsMatch_ShouldNotCreateFile() throws Exception {
+        // Arrange
+        String testVersion = "17.0.5";
+        when(githubService.getLastJreImageDigest(anyString())).thenReturn(testVersion);
+        
+        // Create temporary JDK structure
+        Path jdkBin = tempDir.resolve("bin");
+        Files.createDirectories(jdkBin);
+        Files.createFile(jdkBin.resolve("java.exe"));
+
+        // Act
+        jreUpdateChecker.checkJreUpdate("test-token");
+
+        // Assert
+        verify(githubService, never()).pushNewJreImageFileToRepo(anyString());
+        assertFalse(Files.exists(tempDir.resolve(NEW_JRE_JSON_FILENAME)));
+    }
+
+    @Test
+    void checkJreUpdate_WhenVersionsDiffer_ShouldCreateNewFile() throws Exception {
+        // Arrange
+        String currentVersion = "17.0.5";
+        String githubVersion = "17.0.4";
+        when(githubService.getLastJreImageDigest(anyString())).thenReturn(githubVersion);
+
+        // Create temporary JDK structure
+        Path jdkBin = tempDir.resolve("bin");
+        Files.createDirectories(jdkBin);
+        Files.createFile(jdkBin.resolve("java.exe"));
+
+        // Act
+        jreUpdateChecker.checkJreUpdate("test-token");
+
+        // Assert
+        verify(githubService).pushNewJreImageFileToRepo(anyString());
+        assertTrue(Files.exists(tempDir.resolve(NEW_JRE_JSON_FILENAME)));
+    }
+
+    @Test
+    void findJdkHome_ShouldReturnValidPath() throws IOException {
+        // Arrange
+        Path testDir = tempDir.resolve("test-jdk");
+        Files.createDirectories(testDir.resolve("bin"));
+        Files.createFile(testDir.resolve("bin/java.exe"));
+
+        // Act
+        Path result = jreUpdateChecker.findJdkHome(tempDir);
+
+        // Assert
+        assertEquals(testDir, result);
+    }
+
+    @Test
+    void getJavaVersion_ShouldReturnValidVersion() throws Exception {
+        // Arrange
+        Path javaHome = tempDir.resolve("jdk");
+        Path javaBin = javaHome.resolve("bin");
+        Files.createDirectories(javaBin);
+        
+        // Create mock java executable
+        Files.write(javaBin.resolve("java"), 
+            "#!/bin/bash\necho 'openjdk 17.0.5 2022-10-18'".getBytes());
+
+        // Act
+        String version = jreUpdateChecker.getJavaVersion(javaHome.toString());
+
+        // Assert
+        assertTrue(version.contains("17.0.5"));
+    }
+
+    @Test
+    void createNewJreImageJsonFile_ShouldCreateValidFile() throws IOException {
+        // Arrange
+        String testVersion = "17.0.5";
+        Path outputPath = tempDir.resolve(NEW_JRE_JSON_FILENAME);
+
+        // Act
+        jreUpdateChecker.createNewJreImageJsonFile(testVersion);
+
+        // Assert
+        assertTrue(Files.exists(outputPath));
+        Map<?,?> content = objectMapper.readValue(outputPath.toFile(), Map.class);
+        assertEquals(testVersion, content.get("version"));
+    }
+
+    @Test
+    void checkJreUpdate_WhenVersionCheckFails_ShouldThrowException() {
+        // Arrange
+        when(githubService.getLastJreImageDigest(anyString()))
+            .thenThrow(new RuntimeException("API error"));
+
+        // Act & Assert
+        assertThrows(JreServiceException.class, 
+            () -> jreUpdateChecker.checkJreUpdate("test-token"));
+    }
+}
