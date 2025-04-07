@@ -1,0 +1,121 @@
+package com.ncratleos.baseimage.service;
+
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+import org.springframework.core.io.ClassPathResource;
+
+import javax.net.ssl.HttpsURLConnection;
+import java.io.*;
+import java.lang.reflect.Field;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.cert.X509Certificate;
+import java.util.zip.GZIPOutputStream;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+class JreServiceTest {
+
+    private JreService jreService;
+    private Path mockTarGz;
+    
+    @TempDir
+    Path tempDir;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        jreService = new JreService();
+        mockTarGz = createTestTarGz();
+        setPrivateField("DOWNLOAD_URL", "file://" + mockTarGz.toString());
+    }
+
+    @Test
+    void downloadAndExtractJDK_ShouldExtractFiles() throws Exception {
+        // Given
+        Path outputDir = tempDir.resolve("jdk-output");
+        
+        // When
+        jreService.downloadAndExtractJDK(outputDir.toString());
+        
+        // Then
+        assertTrue(Files.exists(outputDir.resolve("test-file.txt")));
+        assertTrue(Files.exists(outputDir.resolve("subdir/another-file.txt")));
+    }
+
+    @Test
+    void downloadAndExtractJDK_ShouldCleanupTempFile() throws Exception {
+        // Given
+        Path outputDir = tempDir.resolve("jdk-output");
+        
+        // When
+        jreService.downloadAndExtractJDK(outputDir.toString());
+        
+        // Then
+        assertFalse(Files.exists(Path.of(mockTarGz.toString().replace("file://", ""))));
+    }
+
+    @Test
+    void downloadAndExtractJDK_ShouldDisableSSLValidation() throws Exception {
+        try (MockedStatic<HttpsURLConnection> httpsMock = mockStatic(HttpsURLConnection.class)) {
+            // When
+            jreService.downloadAndExtractJDK(tempDir.toString());
+            
+            // Then
+            httpsMock.verify(() -> 
+                HttpsURLConnection.setDefaultSSLSocketFactory(any()));
+            httpsMock.verify(() -> 
+                HttpsURLConnection.setDefaultHostnameVerifier(any()));
+        }
+    }
+
+    @Test
+    void downloadAndExtractJDK_ShouldThrowOnInvalidURL() throws Exception {
+        setPrivateField("DOWNLOAD_URL", "invalid://url");
+        assertThrows(IOException.class, () -> 
+            jreService.downloadAndExtractJDK(tempDir.toString()));
+    }
+
+    private Path createTestTarGz() throws IOException {
+        Path tarPath = tempDir.resolve("test.tar.gz");
+        
+        try (OutputStream fOut = Files.newOutputStream(tarPath);
+             GZIPOutputStream gzOut = new GZIPOutputStream(fOut);
+             TarArchiveOutputStream tarOut = new TarArchiveOutputStream(gzOut)) {
+            
+            // Add test files
+            addFileToTar(tarOut, "test-file.txt", "test content");
+            addFileToTar(tarOut, "subdir/another-file.txt", "more content");
+        }
+        
+        return tarPath;
+    }
+
+    private void addFileToTar(TarArchiveOutputStream tarOut, 
+                            String filename, String content) throws IOException {
+        TarArchiveEntry entry = new TarArchiveEntry(filename);
+        entry.setSize(content.getBytes().length);
+        tarOut.putArchiveEntry(entry);
+        tarOut.write(content.getBytes());
+        tarOut.closeArchiveEntry();
+    }
+
+    private void setPrivateField(String fieldName, Object value) 
+            throws Exception {
+        Field field = JreService.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        
+        Field modifiersField = Field.class.getDeclaredField("modifiers");
+        modifiersField.setAccessible(true);
+        modifiersField.setInt(field, field.getModifiers() & ~java.lang.reflect.Modifier.FINAL);
+        
+        field.set(null, value);
+    }
+}
