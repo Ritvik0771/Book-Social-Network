@@ -1,21 +1,50 @@
-HttpClient client = HttpClient.newHttpClient();
-    HttpRequest request = HttpRequest.newBuilder()
-        .uri(URI.create("https://corretto.aws/downloads/latest/amazon-corretto-17-x64-linux-jdk.tar.gz"))
-        .build();
+import org.springframework.stereotype.Service;
 
-    HttpResponse<InputStream> response = client.send(
-        request,
-        HttpResponse.BodyHandlers.ofInputStream()
-    );
+import java.io.*;
+import java.net.URL;
+import java.nio.file.*;
+import java.util.zip.GZIPInputStream;
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 
-    if (response.statusCode() != 200) {
-        throw new RuntimeException("HTTP error: " + response.statusCode());
+@Service
+public class JdkDownloadService {
+
+    private static final String DOWNLOAD_URL = "https://corretto.aws/downloads/latest/amazon-corretto-17-x64-linux-jdk.tar.gz";
+
+    public void downloadAndExtractJDK(String outputDirPath) throws IOException {
+        Path outputDir = Paths.get(outputDirPath);
+        Files.createDirectories(outputDir);
+
+        Path tempFile = Files.createTempFile("jdk", ".tar.gz");
+
+        // Step 1: Download the file
+        try (InputStream in = new URL(DOWNLOAD_URL).openStream()) {
+            Files.copy(in, tempFile, StandardCopyOption.REPLACE_EXISTING);
+            System.out.println("JDK downloaded to: " + tempFile);
+        }
+
+        // Step 2: Extract .tar.gz
+        try (
+            GZIPInputStream gzipIn = new GZIPInputStream(new FileInputStream(tempFile.toFile()));
+            TarArchiveInputStream tarIn = new TarArchiveInputStream(gzipIn)
+        ) {
+            TarArchiveEntry entry;
+            while ((entry = tarIn.getNextTarEntry()) != null) {
+                Path entryPath = outputDir.resolve(entry.getName());
+                if (entry.isDirectory()) {
+                    Files.createDirectories(entryPath);
+                } else {
+                    Files.createDirectories(entryPath.getParent());
+                    try (OutputStream out = Files.newOutputStream(entryPath)) {
+                        tarIn.transferTo(out);
+                    }
+                }
+            }
+            System.out.println("JDK extracted to: " + outputDir.toAbsolutePath());
+        }
+
+        // Step 3: Clean up
+        Files.deleteIfExists(tempFile);
     }
-
-    // Save the downloaded content to jdk.tar.gz
-    try (InputStream is = response.body();
-         FileOutputStream fos = new FileOutputStream("jdk.tar.gz")) {
-        is.transferTo(fos);
-    }
-
-    System.out.println("JDK downloaded successfully.");
+}
