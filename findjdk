@@ -1,0 +1,10 @@
+public Path findJdkHome(Path parentDir) throws IOException {
+    try (DirectoryStream<Path> stream = Files.newDirectoryStream(parentDir)) {
+        for (Path path : stream) {
+            if (Files.isDirectory(path) && Files.exists(path.resolve("bin/java"))) {
+                return path;
+            }
+        }
+    }
+    throw new IOException("No JDK installation found in: " + parentDir);
+}
