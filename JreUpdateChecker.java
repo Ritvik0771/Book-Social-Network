@@ -1,12 +1,9 @@
-// File: amps-base-image/src/main/java/com/ncratleos/baseimage/jre/JreUpdateChecker.java
 package com.ncratleos.baseimage.jre;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ncratleos.baseimage.dto.AlpineImageInfoDto;
 import com.ncratleos.baseimage.service.GithubService;
 import io.micrometer.common.util.StringUtils;
-import com.ncratleos.baseimage.service.JreService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import com.ncratleos.baseimage.exception.JreServiceException;
@@ -16,54 +13,45 @@ import java.lang.InterruptedException;
 
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpResponse;
+import java.net.URL;
 import java.nio.file.*;
-import java.security.PublicKey;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.boot.CommandLineRunner;
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 import java.io.File;
-import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 import static com.ncratleos.baseimage.constant.FilenameConstants.*;
 
 @Component
 @Slf4j
 public class JreUpdateChecker {
-    
+
+    private static final String DOWNLOAD_URL = "https://corretto.aws/downloads/latest/amazon-corretto-17-x64-windows-jdk.zip";
     private final GithubService githubService;
-    private final JreService jreService;
     private final ObjectMapper objectMapper;
 
-    public JreUpdateChecker(GithubService githubService, JreService jreService, ObjectMapper objectMapper) {
+    public JreUpdateChecker(GithubService githubService, ObjectMapper objectMapper) {
         this.githubService = githubService;
-        this.jreService = jreService;
         this.objectMapper = objectMapper;
     }
 
     public void checkJreUpdate(String githubAuthToken) throws JreServiceException {
         try{
             String targetDirectory = System.getProperty("java.io.tmpdir") + "/jre/";
-            jreService.downloadAndExtractJDK(targetDirectory);
+            downloadAndExtractJDK(targetDirectory);
 
             // 2. Get Java version
             Path jdkHome = findJdkHome(Paths.get(targetDirectory));
@@ -92,8 +80,64 @@ public class JreUpdateChecker {
         }catch (Exception e) {
              throw new JreServiceException("Failed to check JRE update", e);
          }
+    }
 
+    public void downloadAndExtractJDK(String outputDirPath) throws IOException {
+        Path outputDir = Paths.get(outputDirPath);
+        Files.createDirectories(outputDir);
 
+        Path tempZip = Files.createTempFile("jdk", ".zip");
+
+        try{
+            disableSSLCertificateValidation();
+        }catch(Exception e){
+            throw new IOException("Failed to disable SSL Validation" , e);
+        }
+
+        // Step 1: Download the JDK ZIP
+        try (InputStream in = downloadJdkFile(DOWNLOAD_URL)) {
+            Files.copy(in, tempZip, StandardCopyOption.REPLACE_EXISTING);
+            System.out.println("JDK downloaded to: " + tempZip);
+        }
+
+        // Step 2: Extract the ZIP
+        try (ZipInputStream zipIn = new ZipInputStream(new FileInputStream(tempZip.toFile()))) {
+            ZipEntry entry;
+            while ((entry = zipIn.getNextEntry()) != null) {
+                Path filePath = outputDir.resolve(entry.getName());
+                if (entry.isDirectory()) {
+                    Files.createDirectories(filePath);
+                } else {
+                    Files.createDirectories(filePath.getParent());
+                    try (OutputStream out = Files.newOutputStream(filePath)) {
+                        zipIn.transferTo(out);
+                    }
+                }
+                zipIn.closeEntry();
+            }
+            System.out.println("JDK extracted to: " + outputDir.toAbsolutePath());
+        }
+
+        // Step 3: Clean up
+        Files.deleteIfExists(tempZip);
+    }
+
+    protected InputStream downloadJdkFile(String url) throws IOException {
+        return new URL(url).openStream();
+    }
+
+    private void disableSSLCertificateValidation() throws Exception {
+        TrustManager[] trustAllCerts = new TrustManager[]{
+                new X509TrustManager() {
+                    public X509Certificate[] getAcceptedIssuers() { return null; }
+                    public void checkClientTrusted(X509Certificate[] certs, String authType) {}
+                    public void checkServerTrusted(X509Certificate[] certs, String authType) {}
+                }
+        };
+        SSLContext sc = SSLContext.getInstance("TLS");
+        sc.init(null, trustAllCerts, new java.security.SecureRandom());
+        HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory());
+        HttpsURLConnection.setDefaultHostnameVerifier((hostname, session) -> true);
     }
 
     public Path findJdkHome(Path parentDir) throws IOException {
@@ -133,7 +177,6 @@ public class JreUpdateChecker {
 
         return output.toString().trim();
     }
-
 
     public void createNewJreImageJsonFile(String version, String githubAuthToken) {
         Map<String, Object> data = new HashMap<>();
@@ -186,7 +229,6 @@ public class JreUpdateChecker {
     public String getPlatformArchitecture(String githubAuthToken){
         AlpineImageInfoDto alpineImageInfoDto = this.githubService.getAlpineManifest(githubAuthToken);
         return alpineImageInfoDto.getPlatform().getArchitecture();
-
     }
 
     public String extractVersion(String version){
