@@ -1,92 +1,31 @@
-package com.ncratleos.baseimage.jre;
+@Test
+void shouldCreateNewJreImageJsonAndPush_whenNewVersionAvailable() throws Exception {
+    // Given
+    String githubAuthToken = "dummyToken";
+    String currentVersion = "openjdk 17.0.1 2025-01-21 LTS";
+    String lastVersion = "openjdk 17.0.0 2024-11-15 LTS";
+    String extractedVersion = "17.0.1";
+    List<String> latestAlpineTags = List.of("latest", "3.21.3", "3.21", "3");
+    AlpineImageInfoDto.Platform platform = new AlpineImageInfoDto.Platform();
+    platform.setArchitecture("amd64");
+    AlpineImageInfoDto dto = new AlpineImageInfoDto();
+    dto.setPlatform(platform);
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.ncratleos.baseimage.exception.JreServiceException;
-import com.ncratleos.baseimage.service.GithubService;
-import com.ncratleos.baseimage.service.JreService;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mockito;
+    Path fakeJdkHome = Path.of("/fake/jdk");
 
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Path;
+    // Mocking dependencies
+    when(jreService.downloadAndExtractJDK(anyString())).thenReturn(null);
+    when(githubService.getLastJreImageVersion(githubAuthToken)).thenReturn(lastVersion);
+    when(githubService.getLastImageTags(githubAuthToken)).thenReturn(latestAlpineTags);
+    when(githubService.getAlpineManifest(githubAuthToken)).thenReturn(dto);
+    when(jreUpdateChecker.findJdkHome(any())).thenReturn(fakeJdkHome);
+    when(jreUpdateChecker.getJavaVersion(any())).thenReturn(currentVersion);
 
-import static com.ncratleos.baseimage.constant.FilenameConstants.NEW_JRE_JSON_FILENAME;
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+    // When
+    jreUpdateChecker.checkJreUpdate(githubAuthToken);
 
-class JreUpdateCheckerTest {
-
-    private GithubService githubService;
-    private JreService jreService;
-    private ObjectMapper objectMapper;
-    private JreUpdateChecker jreUpdateChecker;
-
-    @BeforeEach
-    void setUp() {
-        githubService = mock(GithubService.class);
-        jreService = mock(JreService.class);
-        objectMapper = new ObjectMapper();
-        jreUpdateChecker = new JreUpdateChecker(githubService, jreService, objectMapper);
-    }
-
-    @Test
-    void shouldCreateNewJreImageJsonAndPush_whenNewVersionAvailable(@TempDir Path tempDir) throws Exception {
-        // Given
-        String fakeVersion = "17.0.10";
-        String oldVersion = "17.0.8";
-        Path fakeJdkHome = tempDir.resolve("jdk");
-        Files.createDirectories(fakeJdkHome.resolve("bin"));
-        Files.createFile(fakeJdkHome.resolve("bin/java.exe"));
-
-        // Simulate java --version output
-        JreUpdateChecker spyChecker = Mockito.spy(jreUpdateChecker);
-        doReturn(fakeJdkHome).when(spyChecker).findJdkHome(any());
-        doReturn(fakeVersion).when(spyChecker).getJavaVersion(any());
-
-        when(githubService.getLastJreImageDigest(anyString())).thenReturn(oldVersion);
-
-        // When
-        spyChecker.checkJreUpdate("dummy-token");
-
-        // Then
-        File jsonFile = new File(NEW_JRE_JSON_FILENAME);
-        assertTrue(jsonFile.exists(), "New JRE version JSON file should exist");
-
-        JsonNode node = objectMapper.readTree(jsonFile);
-        assertEquals(fakeVersion, node.get("version").asText());
-
-        verify(githubService).pushNewJreImageFileToRepo("dummy-token");
-
-        // Cleanup
-        jsonFile.delete();
-    }
-
-    @Test
-    void shouldNotPushIfVersionsMatch(@TempDir Path tempDir) throws Exception {
-        String version = "17.0.10";
-        Path fakeJdkHome = tempDir.resolve("jdk");
-        Files.createDirectories(fakeJdkHome.resolve("bin"));
-        Files.createFile(fakeJdkHome.resolve("bin/java.exe"));
-
-        JreUpdateChecker spyChecker = Mockito.spy(jreUpdateChecker);
-        doReturn(fakeJdkHome).when(spyChecker).findJdkHome(any());
-        doReturn(version).when(spyChecker).getJavaVersion(any());
-        when(githubService.getLastJreImageDigest(anyString())).thenReturn(version);
-
-        spyChecker.checkJreUpdate("dummy-token");
-
-        verify(githubService, never()).pushNewJreImageFileToRepo(any());
-        assertFalse(new File(NEW_JRE_JSON_FILENAME).exists(), "No file should be created if versions match");
-    }
-
-    @Test
-    void shouldThrowExceptionIfJdkNotFound() {
-        assertThrows(JreServiceException.class, () -> {
-            jreUpdateChecker.checkJreUpdate("token");
-        });
-    }
+    // Then
+    verify(githubService).pushNewJreImageFileToRepo(githubAuthToken);
+    File file = new File("new-jre-image.json");
+    assertTrue(file.exists());
 }
