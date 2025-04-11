@@ -1,0 +1,27 @@
+package com.ncratleos.baseimage.ssl;
+
+import javax.net.ssl.X509TrustManager;
+import java.security.cert.X509Certificate;
+
+/**
+ * A TrustManager that blindly trusts all X509 certificates.
+ * <p>
+ * This implementation is insecure and should be used only in trusted, non-production environments.
+ */
+public class TrustAllX509TrustManager implements X509TrustManager {
+
+    @Override
+    public void checkClientTrusted(X509Certificate[] chain, String authType) {
+        // No-op: trust all clients
+    }
+
+    @Override
+    public void checkServerTrusted(X509Certificate[] chain, String authType) {
+        // No-op: trust all servers
+    }
+
+    @Override
+    public X509Certificate[] getAcceptedIssuers() {
+        return new X509Certificate[0];
+    }
+}
