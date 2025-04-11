@@ -7,9 +7,18 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.*;
 
+/**
+ * Utility class for extracting TAR archive files.
+ */
 public class TarUtil {
     private static final Logger log = LoggerFactory.getLogger(TarUtil.class);
 
+    /**
+     * Extracts all entries from the given {@link TarArchiveInputStream} to the specified output directory.
+     *
+     * @param tarIn     the TAR input stream to extract
+     * @param outputDir the target directory where the contents should be extracted
+     */
     public static void extractTarArchive(TarArchiveInputStream tarIn, Path outputDir) {
         TarArchiveEntry entry;
         try {
