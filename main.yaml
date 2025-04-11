@@ -1,0 +1,88 @@
+name: Teams Notification
+description: "A custom action to send teams notification"
+
+inputs:
+  status:
+    description: "Status of the workflow (e.g., success or failure)"
+    required: true
+  notif_message:
+    description: "Custom message for the notification"
+    required: true
+  webhook_url:
+    description: "Microsoft Teams webhook URL"
+    required: true
+  notif_description:
+    description: "Custom description for the notification"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Send Teams Notification
+      uses: skitionek/notify-microsoft-teams@master
+      with:
+        webhook_url: ${{ inputs.webhook_url }}
+        raw: >-
+          {
+            "type": "message",
+            "attachments": [
+              {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                  "type": "AdaptiveCard",
+                  "body": [
+                    {
+                      "type": "TextBlock",
+                      "size": "Medium",
+                      "weight": "Bolder",
+                      "text": "${{ inputs.notif_message }}",
+                      "style": "heading",
+                      "wrap": true
+                    },
+                    {
+                      "type": "TextBlock",
+                      "size": "Medium",
+                      "weight": "lighter",
+                      "text": "[Click here to view the workflow details](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+                    },
+                    {
+                      "type": "ColumnSet",
+                      "columns": [
+                        {
+                          "type": "Column",
+                          "items": [
+                            {
+                              "type": "Image",
+                              "style": "person",
+                              "url": "https://raw.githubusercontent.com/Skitionek/notify-microsoft-teams/master/icons/failure.png",
+                              "altText": "Result",
+                              "size": "small"
+                            }
+                          ],
+                          "width": "auto"
+                        },
+                        {
+                          "type": "Column",
+                          "items": [
+                            {
+                              "type": "TextBlock",
+                              "weight": "bolder",
+                              "text": "${{ inputs.notif_description }}"
+                            }
+                          ],
+                          "width": "stretch"
+                        }
+                      ]
+                    }
+                  ],
+                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  "version": "1.5",
+                  "msteams": {
+                    "entities": [
+                      {}
+                    ]
+                  }
+                }
+              }
+            ]
+          }
