@@ -1,0 +1,9 @@
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.util.zip.GZIPInputStream;
+
+public class GzipUtil {
+    public static GZIPInputStream decompress(String gzipFilePath) throws IOException {
+        return new GZIPInputStream(new FileInputStream(gzipFilePath));
+    }
+}
