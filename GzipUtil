@@ -2,8 +2,19 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.zip.GZIPInputStream;
 
+/**
+ * Utility class for handling GZIP file operations.
+ */
 public class GzipUtil {
-    public static GZIPInputStream decompress(String gzipFilePath) throws IOException {
-        return new GZIPInputStream(new FileInputStream(gzipFilePath));
+
+    /**
+     * Returns a {@link GZIPInputStream} for the given file path.
+     *
+     * @param filePath the path of the GZIP file to be read
+     * @return GZIPInputStream for the specified file
+     * @throws IOException if the file does not exist or cannot be opened
+     */
+    public static GZIPInputStream getGzipInputStream(String filePath) throws IOException {
+        return new GZIPInputStream(new FileInputStream(filePath));
     }
 }
