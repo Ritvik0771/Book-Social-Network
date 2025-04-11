@@ -1,0 +1,65 @@
+name: JRE Update Check
+on: 
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  check-jre-update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "corretto"
+      
+      - name: Download Update checker JAR
+        run: |
+          curl -v -u ${{ secrets.JFROG_USERNAME }}:${{ secrets.JFROG_PASSWORD }} ${{ secrets.JFROG_URL }}/artifactory/fsg-ess-maven-releases/com/ncratleos/baseimages/amps-base-image-jre.jar -o amps-base-image-jre.jar
+          chmod 777 amps-base-image-jre.jar
+          
+      - name: Verify JAR File
+        run: |
+          file amps-base-image-jre.jar
+          ls -l amps-base-image-jre.jar
+      
+      - name: Execute JRE Update Check
+        id: jre-update-check 
+        run: |
+          java -jar amps-base-image-jre.jar jre ${{ secrets.PAT }}
+
+      - name: Print env variables received from JAR if update available
+        if: env.update == 'true'
+        run: | 
+          echo "GHA ENV: ${{ env.update }}"
+          echo "GHA ENV: ${{ env.jre-image-tags }}"  
+
+      - name: Trigger publish base java image Workflow
+        if: env.update == 'true'
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/publish-basejava.yml/dispatches \
+            -d '{"ref":"main", "inputs": {"tags": "${{ env.jre-image-tags }}"}}')
+          echo "Response code: $response"
+          if [ "$response" -ne 204 ]; then
+            echo "Failed to trigger base java image publisher workflow. HTTP status code: $response"
+            exit 1
+          fi
+
+      - name: Publish Teams Notification on workflow failure
+        if: failure()
+        uses: ./.github/actions/teams-notification
+        with:
+          status: "failure"
+          notif_message: "JRE update check workflow failed!"
+          notif_description: "There was an error in checking JRE update"
+          webhook_url: ${{ secrets.TEAMS_CHANNEL_WEBHOOK_URL }}
+      
+        
